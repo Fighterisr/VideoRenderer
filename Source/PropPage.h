@@ -32,6 +32,7 @@ class __declspec(uuid("DA46D181-07D6-441D-B314-019AEB10148A"))
 	Settings_t m_SetsPP;
 
 	int m_oldSDRDisplayNits = SDR_NITS_DEF;
+	int m_oldHdrMaxNits = 0;
 
 public:
 	CVRMainPPage(LPUNKNOWN lpunk, HRESULT* phr);

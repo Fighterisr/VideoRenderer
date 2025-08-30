@@ -100,6 +100,7 @@ void CVRMainPPage::SetControls()
 
 	CheckDlgButton(IDC_CHECK18, m_SetsPP.bHdrPreferDoVi       ? BST_CHECKED : BST_UNCHECKED);
 	CheckDlgButton(IDC_CHECK12, m_SetsPP.bHdrPassthrough      ? BST_CHECKED : BST_UNCHECKED);
+	CheckDlgButton(IDC_CHECK20, m_SetsPP.bHdrSetMaxNits       ? BST_CHECKED : BST_UNCHECKED);
 	CheckDlgButton(IDC_CHECK14, m_SetsPP.bConvertToSdr        ? BST_CHECKED : BST_UNCHECKED);
 
 	SendDlgItemMessageW(IDC_COMBO7, CB_SETCURSEL, m_SetsPP.iHdrToggleDisplay, 0);
@@ -107,6 +108,9 @@ void CVRMainPPage::SetControls()
 
 	SendDlgItemMessageW(IDC_SLIDER2, TBM_SETPOS, 1, m_SetsPP.iSDRDisplayNits / SDR_NITS_STEP);
 	GetDlgItem(IDC_EDIT1).SetWindowTextW(std::to_wstring(m_SetsPP.iSDRDisplayNits).c_str());
+
+	// max nits
+	GetDlgItem(IDC_EDIT3).SetWindowTextW(std::to_wstring(m_SetsPP.iHdrMaxNits).c_str());
 
 	CheckDlgButton(IDC_CHECK6, m_SetsPP.bInterpolateAt50pct   ? BST_CHECKED : BST_UNCHECKED);
 	CheckDlgButton(IDC_CHECK10, m_SetsPP.bUseDither           ? BST_CHECKED : BST_UNCHECKED);
@@ -155,6 +159,8 @@ void CVRMainPPage::EnableControls()
 	GetDlgItem(IDC_STATIC8).EnableWindow(m_SetsPP.bConvertToSdr);
 	GetDlgItem(IDC_EDIT1).EnableWindow(m_SetsPP.bConvertToSdr);
 	GetDlgItem(IDC_SLIDER2).EnableWindow(m_SetsPP.bConvertToSdr);
+	GetDlgItem(IDC_CHECK20).EnableWindow(m_SetsPP.bUseD3D11 && IsWindows10OrGreater());
+	GetDlgItem(IDC_EDIT3).EnableWindow(m_SetsPP.bUseD3D11 && m_SetsPP.bHdrSetMaxNits && m_SetsPP.bHdrPassthrough && IsWindows10OrGreater());
 }
 
 HRESULT CVRMainPPage::OnConnect(IUnknown *pUnk)
@@ -182,6 +188,13 @@ HRESULT CVRMainPPage::OnDisconnect()
 		m_pVideoRenderer->SetSettings(m_SetsPP);
 	}
 
+	if (m_SetsPP.iHdrMaxNits != m_oldHdrMaxNits) {
+		// cancel unsaved max nits
+		m_pVideoRenderer->GetSettings(m_SetsPP);
+		m_SetsPP.iHdrMaxNits = m_oldHdrMaxNits;
+		m_pVideoRenderer->SetSettings(m_SetsPP);
+	}
+
 	m_pVideoRenderer.Release();
 
 	return S_OK;
@@ -194,6 +207,7 @@ HRESULT CVRMainPPage::OnActivate()
 
 	m_pVideoRenderer->GetSettings(m_SetsPP);
 	m_oldSDRDisplayNits = m_SetsPP.iSDRDisplayNits;
+	m_oldHdrMaxNits = m_SetsPP.iHdrMaxNits;
 
 	if (!IsWindows7SP1OrGreater()) {
 		GetDlgItem(IDC_CHECK1).EnableWindow(FALSE);
@@ -372,6 +386,23 @@ INT_PTR CVRMainPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
 				SetDirty();
 				return (LRESULT)1;
 			}
+			if (nID == IDC_CHECK20) {
+				m_SetsPP.bHdrSetMaxNits = IsDlgButtonChecked(IDC_CHECK20) == BST_CHECKED;
+				GetDlgItem(IDC_EDIT3).EnableWindow(m_SetsPP.bHdrSetMaxNits && m_SetsPP.bHdrPassthrough && m_SetsPP.bUseD3D11 && IsWindows10OrGreater());
+				// if enabling the cap and current value is below minimum, raise it immediately
+				if (m_SetsPP.bHdrSetMaxNits) {
+					wchar_t buf[64] = {};
+					GetDlgItem(IDC_EDIT3).GetWindowTextW(buf, _countof(buf));
+					int val = _wtoi(buf);
+					if (val < 400) {
+						m_SetsPP.iHdrMaxNits = 400;
+						GetDlgItem(IDC_EDIT3).SetWindowTextW(std::to_wstring(m_SetsPP.iHdrMaxNits).c_str());
+						SetDirty();
+					}
+				}
+				SetDirty();
+				return (LRESULT)1;
+			}
 			if (nID == IDC_CHECK14) {
 				m_SetsPP.bConvertToSdr = IsDlgButtonChecked(IDC_CHECK14) == BST_CHECKED;
 				EnableControls();
@@ -458,12 +489,28 @@ INT_PTR CVRMainPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
 					m_SetsPP.iDownscaling = lValue;
 					SetDirty();
 				}
-				return (LRESULT)1;
-			}
-			if (nID == IDC_COMBO4) {
+					return (LRESULT)1;
+				}
+				if (nID == IDC_COMBO4) {
 				lValue = SendDlgItemMessageW(IDC_COMBO4, CB_GETCURSEL, 0, 0);
 				if (lValue != m_SetsPP.iSwapEffect) {
 					m_SetsPP.iSwapEffect = lValue;
+					SetDirty();
+				}
+				return (LRESULT)1;
+			}
+		}
+
+		if (action == EN_CHANGE) {
+			if (nID == IDC_EDIT3) {
+				wchar_t buf[64] = {};
+				GetDlgItem(IDC_EDIT3).GetWindowTextW(buf, _countof(buf));
+				int val = _wtoi(buf);
+				int minVal = (m_SetsPP.bHdrSetMaxNits ? 400 : 0);
+				if (val < minVal) val = minVal;
+				if (val > 10000) val = 10000;
+				if (val != m_SetsPP.iHdrMaxNits) {
+					m_SetsPP.iHdrMaxNits = val;
 					SetDirty();
 				}
 				return (LRESULT)1;
@@ -508,6 +555,7 @@ HRESULT CVRMainPPage::OnApplyChanges()
 	m_pVideoRenderer->SaveSettings();
 
 	m_oldSDRDisplayNits = m_SetsPP.iSDRDisplayNits;
+	m_oldHdrMaxNits = m_SetsPP.iHdrMaxNits;
 
 	return S_OK;
 }

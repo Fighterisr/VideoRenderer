@@ -27,6 +27,7 @@
 #include "VideoRendererInputPin.h"
 #include "../Include/Version.h"
 #include "VideoRenderer.h"
+#include "DX11VideoProcessor.h"
 #include "SubPic/XySubPicProvider.h"
 #include "SubPic/XySubPicQueueImpl.h"
 
@@ -62,6 +63,8 @@
 #define OPT_HdrToggleDisplay               L"HdrToggleDisplay"
 #define OPT_HdrOsdBrightness               L"HdrOsdBrightness"
 #define OPT_ConvertToSdr                   L"ConvertToSdr"
+#define OPT_HdrSetMaxNits                  L"HdrSetMaxNits"
+#define OPT_HdrMaxNits                     L"HdrMaxNits"
 #define OPT_UseD3DFullscreen               L"UseD3DFullscreen"
 #define OPT_DisplayNits                    L"DisplayNits"
 
@@ -245,6 +248,16 @@ CMpcVideoRenderer::CMpcVideoRenderer(LPUNKNOWN pUnk, HRESULT* phr)
 		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrPassthrough, dw)) {
 			m_Sets.bHdrPassthrough = !!dw;
 		}
+		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrSetMaxNits, dw)) {
+			m_Sets.bHdrSetMaxNits = !!dw;
+		}
+		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrMaxNits, dw)) {
+			m_Sets.iHdrMaxNits = discard<int>(dw, 0, 0, 10000);
+		}
+		// if the user did not enable manual max-nits, don't carry over any parsed metadata value
+		if (!m_Sets.bHdrSetMaxNits) {
+			m_Sets.iHdrMaxNits = 0;
+		}
 		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrToggleDisplay, dw)) {
 			m_Sets.iHdrToggleDisplay = discard<int>(dw, HDRTD_On, HDRTD_Disabled, HDRTD_OnOff);
 		}
@@ -270,6 +283,12 @@ CMpcVideoRenderer::CMpcVideoRenderer(LPUNKNOWN pUnk, HRESULT* phr)
 		m_VideoProcessor.reset(new CDX11VideoProcessor(this, m_Sets, hr));
 		if (SUCCEEDED(hr)) {
 			hr = m_VideoProcessor->Init(m_hWnd, false);
+			if (SUCCEEDED(hr)) {
+				// apply saved settings immediately so caps (like HDR max nits) take effect on startup
+				m_VideoProcessor->Configure(m_Sets);
+				// force immediate render to ensure SetHDRMetaData is sent without waiting for other events
+				(void)m_VideoProcessor->Render(0, INVALID_TIME);
+			}
 		}
 
 		if (FAILED(hr)) {
@@ -1207,6 +1226,14 @@ STDMETHODIMP_(void) CMpcVideoRenderer::SetSettings(const Settings_t& setings)
 	m_Sets = setings;
 	m_VideoProcessor->Configure(m_Sets);
 
+	// If we are using the DX11 processor, force a single render to send HDR metadata immediately
+	if (m_VideoProcessor) {
+		CDX11VideoProcessor* pDX11 = dynamic_cast<CDX11VideoProcessor*>(m_VideoProcessor.get());
+		if (pDX11) {
+			(void)pDX11->Render(0, INVALID_TIME);
+		}
+	}
+
 	if (m_State == State_Paused) {
 		if (!m_bValidBuffer && m_pMediaSample) {
 			m_bInReceive = FALSE;
@@ -1247,6 +1274,8 @@ STDMETHODIMP CMpcVideoRenderer::SaveSettings()
 		key.SetDWORDValue(OPT_ReinitByDisplay,     m_Sets.bReinitByDisplay);
 		key.SetDWORDValue(OPT_HdrPreferDoVi,       m_Sets.bHdrPreferDoVi);
 		key.SetDWORDValue(OPT_HdrPassthrough,      m_Sets.bHdrPassthrough);
+		key.SetDWORDValue(OPT_HdrSetMaxNits,       m_Sets.bHdrSetMaxNits);
+		key.SetDWORDValue(OPT_HdrMaxNits,          m_Sets.iHdrMaxNits);
 		key.SetDWORDValue(OPT_HdrToggleDisplay,    m_Sets.iHdrToggleDisplay);
 		key.SetDWORDValue(OPT_HdrOsdBrightness,    m_Sets.iHdrOsdBrightness);
 		key.SetDWORDValue(OPT_ConvertToSdr,        m_Sets.bConvertToSdr);

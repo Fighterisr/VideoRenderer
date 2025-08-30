@@ -2088,7 +2088,10 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 					m_hdr10.hdr10.WhitePoint[0]   = static_cast<UINT16>(std::lround(hdr->white_point_x * 50000.0));
 					m_hdr10.hdr10.WhitePoint[1]   = static_cast<UINT16>(std::lround(hdr->white_point_y * 50000.0));
 
-					m_hdr10.hdr10.MaxMasteringLuminance = static_cast<UINT>(std::lround(hdr->max_display_mastering_luminance));
+					{
+						const UINT parsedMax = static_cast<UINT>(std::lround(hdr->max_display_mastering_luminance));
+						m_hdr10.hdr10.MaxMasteringLuminance = m_MaxMasteringLuminanceCap ? m_MaxMasteringLuminanceCap : parsedMax;
+					}
 					m_hdr10.hdr10.MinMasteringLuminance = static_cast<UINT>(std::lround(hdr->min_display_mastering_luminance * 10000.0));
 				}
 			}
@@ -2386,6 +2389,11 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 			}
 		}
 
+		// apply user-configured max mastering luminance cap if enabled
+		if (m_MaxMasteringLuminanceCap) {
+			m_hdr10.hdr10.MaxMasteringLuminance = m_MaxMasteringLuminanceCap;
+			m_lastHdr10.hdr10.MaxMasteringLuminance = m_MaxMasteringLuminanceCap;
+		}
 		const DXGI_COLOR_SPACE_TYPE colorSpace = DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
 		if (m_currentSwapChainColorSpace != colorSpace) {
 			if (m_hdr10.bValid) {
@@ -2408,7 +2416,11 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 				m_lastHdr10.hdr10.BluePrimary[1]  = 3000;
 				m_lastHdr10.hdr10.WhitePoint[0]   = 15635;
 				m_lastHdr10.hdr10.WhitePoint[1]   = 16450;
-				m_lastHdr10.hdr10.MaxMasteringLuminance = m_DoviMaxMasteringLuminance ? m_DoviMaxMasteringLuminance : 1000; // 1000 nits
+				{
+					UINT val = m_DoviMaxMasteringLuminance ? m_DoviMaxMasteringLuminance : 1000; // 1000 nits
+					if (m_MaxMasteringLuminanceCap) val = m_MaxMasteringLuminanceCap;
+					m_lastHdr10.hdr10.MaxMasteringLuminance = val;
+				}
 				m_lastHdr10.hdr10.MinMasteringLuminance = m_DoviMinMasteringLuminance ? m_DoviMinMasteringLuminance : 50;   // 0.005 nits
 				hr = m_pDXGISwapChain4->SetHDRMetaData(DXGI_HDR_METADATA_TYPE_HDR10, sizeof(DXGI_HDR_METADATA_HDR10), &m_lastHdr10.hdr10);
 				DLogIf(FAILED(hr), L"CDX11VideoProcessor::Render() : SetHDRMetaData(Display P3 standard) failed with error {}", HR2Str(hr));
@@ -3436,6 +3448,21 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 	m_bDeintBlend          = config.bDeintBlend;
 
 	// checking what needs to be changed
+
+	// wire UI max nits cap into renderer (0 == disabled). enforce minimum allowed cap of 400 when set.
+	const UINT oldCap = m_MaxMasteringLuminanceCap;
+	UINT newCap = 0;
+	if (config.bHdrSetMaxNits && config.iHdrMaxNits > 0) {
+		int v = config.iHdrMaxNits;
+		if (v < 400) v = 400; // minimum cap
+		if (v > 10000) v = 10000;
+		newCap = static_cast<UINT>(v);
+	}
+	m_MaxMasteringLuminanceCap = newCap;
+	// if the cap changed, invalidate last HDR metadata so Render() will resend metadata immediately
+	if (oldCap != newCap) {
+		m_lastHdr10.bValid = false;
+	}
 
 	if (config.iResizeStats != m_iResizeStats) {
 		m_iResizeStats = config.iResizeStats;

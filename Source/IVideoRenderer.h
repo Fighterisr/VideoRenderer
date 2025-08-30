@@ -121,6 +121,10 @@ struct Settings_t {
 	bool bReinitByDisplay;
 	bool bHdrPreferDoVi;
 	bool bHdrPassthrough;
+	// enable manual capping of MaxMasteringLuminance sent to display
+	bool bHdrSetMaxNits;
+	// capped nits value (0..10000), 0 = disabled/not set
+	int  iHdrMaxNits;
 	int  iHdrToggleDisplay;
 	int  iHdrOsdBrightness;
 	bool bConvertToSdr;
@@ -160,6 +164,9 @@ struct Settings_t {
 		bAdjustPresentTime              = true;
 		bReinitByDisplay                = false;
 		bHdrPreferDoVi                  = false;
+		// new HDR max-nits controls
+		bHdrSetMaxNits                  = false;
+		iHdrMaxNits                     = 0;
 		if (IsWindows10OrGreater()) {
 			bHdrPassthrough             = true;
 		} else {
