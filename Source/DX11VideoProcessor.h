@@ -180,6 +180,9 @@ private:
 	UINT m_DoviMaxMasteringLuminance = 0;
 	UINT m_DoviMinMasteringLuminance = 0;
 
+	float m_fMaxLuminance = 0.0f;
+	float m_fMinLuminance = 0.0f;
+
 	HMONITOR m_lastFullscreenHMonitor = nullptr;
 
 	D3DCOLOR m_dwStatsTextColor = D3DCOLOR_XRGB(255, 255, 255);

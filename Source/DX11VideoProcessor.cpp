@@ -23,6 +23,7 @@
 #include <Mferror.h>
 #include <Mfidl.h>
 #include <optional>
+#include <dxgi1_6.h>
 #include "Helper.h"
 #include "Times.h"
 #include "resource.h"
@@ -1447,6 +1448,18 @@ HRESULT CDX11VideoProcessor::InitSwapChain(bool bWindowChanged)
 
 		HRESULT hr2 = m_pDXGISwapChain1->GetContainingOutput(&m_pDXGIOutput);
 
+		if (SUCCEEDED(hr2) && m_pDXGIOutput) {
+			CComPtr<IDXGIOutput6> pDXGIOutput6;
+			if (SUCCEEDED(m_pDXGIOutput->QueryInterface(IID_PPV_ARGS(&pDXGIOutput6)))) {
+				DXGI_OUTPUT_DESC1 desc1 = {};
+				if (SUCCEEDED(pDXGIOutput6->GetDesc1(&desc1))) {
+					m_fMaxLuminance = desc1.MaxLuminance;
+					m_fMinLuminance = desc1.MinLuminance;
+					DLog(L"CDX11VideoProcessor::InitSwapChain() : Display MaxLuminance: {}, MinLuminance: {}", m_fMaxLuminance, m_fMinLuminance);
+				}
+			}
+		}
+
 		m_currentSwapChainColorSpace = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
 		if (bHdrOutput) {
 			hr2 = m_pDXGISwapChain1->QueryInterface(IID_PPV_ARGS(&m_pDXGISwapChain4));
@@ -2434,6 +2447,13 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 			if (m_DoviMinMasteringLuminance && m_DoviMinMasteringLuminance != m_hdr10.hdr10.MinMasteringLuminance) {
 				m_hdr10.hdr10.MinMasteringLuminance = m_DoviMinMasteringLuminance;
 			}
+
+			if (m_fMaxLuminance > 0.0f) {
+				m_hdr10.hdr10.MaxMasteringLuminance = (UINT)m_fMaxLuminance;
+			}
+			if (m_fMinLuminance > 0.0f) {
+				m_hdr10.hdr10.MinMasteringLuminance = (UINT)(m_fMinLuminance * 10000.0f);
+			}
 		}
 
 		const DXGI_COLOR_SPACE_TYPE colorSpace = DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
@@ -2458,8 +2478,8 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 				m_lastHdr10.hdr10.BluePrimary[1]  = 3000;
 				m_lastHdr10.hdr10.WhitePoint[0]   = 15635;
 				m_lastHdr10.hdr10.WhitePoint[1]   = 16450;
-				m_lastHdr10.hdr10.MaxMasteringLuminance = m_DoviMaxMasteringLuminance ? m_DoviMaxMasteringLuminance : 1000; // 1000 nits
-				m_lastHdr10.hdr10.MinMasteringLuminance = m_DoviMinMasteringLuminance ? m_DoviMinMasteringLuminance : 50;   // 0.005 nits
+				m_lastHdr10.hdr10.MaxMasteringLuminance = m_DoviMaxMasteringLuminance ? m_DoviMaxMasteringLuminance : (m_fMaxLuminance > 0.0f ? (UINT)m_fMaxLuminance : 1000); // 1000 nits
+				m_lastHdr10.hdr10.MinMasteringLuminance = m_DoviMinMasteringLuminance ? m_DoviMinMasteringLuminance : (m_fMinLuminance > 0.0f ? (UINT)(m_fMinLuminance * 10000.0f) : 50);   // 0.005 nits
 				hr = m_pDXGISwapChain4->SetHDRMetaData(DXGI_HDR_METADATA_TYPE_HDR10, sizeof(DXGI_HDR_METADATA_HDR10), &m_lastHdr10.hdr10);
 				DLogIf(FAILED(hr), L"CDX11VideoProcessor::Render() : SetHDRMetaData(Display P3 standard) failed with error {}", HR2Str(hr));
 
@@ -3893,6 +3913,7 @@ void CDX11VideoProcessor::UpdateStatsStatic()
 				if (m_lastHdr10.bValid) {
 					m_strStatsHDR += std::format(L", {} nits", m_lastHdr10.hdr10.MaxMasteringLuminance);
 				}
+
 			} else if (m_bConvertToSdr) {
 				m_strStatsHDR.append(L"Convert to SDR");
 			} else {
