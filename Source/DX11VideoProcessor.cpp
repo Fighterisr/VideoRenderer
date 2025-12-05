@@ -549,7 +549,7 @@ HRESULT CDX11VideoProcessor::Init(const HWND hwnd, const bool displayHdrChanged,
 
 	FillDisplayParams();
 
-	if (m_bIsFullscreen != m_pFilter->m_bIsFullscreen) {
+	if (m_bExclusiveScreen != m_pFilter->m_bExclusiveScreen) {
 		m_srcVideoTransferFunction = 0;
 	}
 
@@ -561,7 +561,7 @@ HRESULT CDX11VideoProcessor::Init(const HWND hwnd, const bool displayHdrChanged,
 
 		SetCallbackDevice();
 
-		if (!m_pDXGISwapChain1 || m_bIsFullscreen != m_pFilter->m_bIsFullscreen || bWindowChanged) {
+		if (!m_pDXGISwapChain1 || m_bExclusiveScreen != m_pFilter->m_bExclusiveScreen || bWindowChanged) {
 			InitSwapChain(bWindowChanged);
 			UpdateStatsStatic();
 			m_pFilter->OnDisplayModeChange();
@@ -1094,7 +1094,7 @@ void CDX11VideoProcessor::CalcStatsParams()
 		if (S_OK == m_Font3D.CreateFontBitmap(L"Consolas", m_StatsFontH, 0)) {
 			SIZE charSize = m_Font3D.GetMaxCharMetric();
 			m_StatsRect.right  = m_StatsRect.left + 61 * charSize.cx + 5 + 3;
-			m_StatsRect.bottom = m_StatsRect.top + 18 * charSize.cy + 5 + 3;
+			m_StatsRect.bottom = m_StatsRect.top + 19 * charSize.cy + 5 + 3;
 		}
 		m_StatsBackground.Set(m_StatsRect, rtSize, D3DCOLOR_ARGB(80, 0, 0, 0));
 
@@ -1352,13 +1352,13 @@ HRESULT CDX11VideoProcessor::SetDevice(ID3D11Device *pDevice, ID3D11DeviceContex
 
 HRESULT CDX11VideoProcessor::InitSwapChain(bool bWindowChanged)
 {
-	DLog(L"CDX11VideoProcessor::InitSwapChain() - {}", m_pFilter->m_bIsFullscreen ? L"fullscreen" : L"window");
+	DLog(L"CDX11VideoProcessor::InitSwapChain() - {}", m_pFilter->m_bExclusiveScreen ? L"fullscreen" : L"window");
 	CheckPointer(m_pDXGIFactory2, E_FAIL);
 
 	ReleaseSwapChain();
 
-	auto bFullscreenChange = m_bIsFullscreen != m_pFilter->m_bIsFullscreen;
-	m_bIsFullscreen = m_pFilter->m_bIsFullscreen;
+	auto bFullscreenChange = m_bExclusiveScreen != m_pFilter->m_bExclusiveScreen;
+	m_bExclusiveScreen = m_pFilter->m_bExclusiveScreen;
 
 	if (bFullscreenChange || bWindowChanged) {
 		HandleHDRToggle();
@@ -1383,7 +1383,7 @@ HRESULT CDX11VideoProcessor::InitSwapChain(bool bWindowChanged)
 	HRESULT hr = S_OK;
 	DXGI_SWAP_CHAIN_DESC1 desc1 = {};
 
-	if (m_bIsFullscreen) {
+	if (m_bExclusiveScreen) {
 		MONITORINFOEXW mi = { sizeof(mi) };
 		GetMonitorInfoW(MonitorFromWindow(m_hWnd, MONITOR_DEFAULTTONEAREST), &mi);
 		const CRect rc(mi.rcMonitor);
@@ -1512,9 +1512,9 @@ bool CDX11VideoProcessor::HandleHDRToggle()
 
 					const bool bNeedToggleOn = !displayConfig.HDREnabled() &&
 											   (m_iHdrToggleDisplay == HDRTD_On || m_iHdrToggleDisplay == HDRTD_OnOff
-											   || m_bIsFullscreen && (m_iHdrToggleDisplay == HDRTD_On_Fullscreen || m_iHdrToggleDisplay == HDRTD_OnOff_Fullscreen));
+											   || m_bExclusiveScreen || m_bFullScreen && (m_iHdrToggleDisplay == HDRTD_On_Fullscreen || m_iHdrToggleDisplay == HDRTD_OnOff_Fullscreen));
 					const bool bNeedToggleOff = displayConfig.HDREnabled() &&
-												!bHDREnabled && !m_bIsFullscreen && m_iHdrToggleDisplay == HDRTD_OnOff_Fullscreen;
+												!bHDREnabled && (!m_bExclusiveScreen || !m_bFullScreen) && m_iHdrToggleDisplay == HDRTD_OnOff_Fullscreen;
 					DLog(L"HandleHDRToggle() : {}, {}", bNeedToggleOn, bNeedToggleOff);
 					if (bNeedToggleOn) {
 						bRet = ToggleHDR(displayConfig, true);
@@ -1548,7 +1548,7 @@ bool CDX11VideoProcessor::HandleHDRToggle()
 				}
 
 				if (displayConfig.HDRSupported() && displayConfig.HDREnabled() &&
-						(!bWindowsHDREnabled || (m_iHdrToggleDisplay == HDRTD_OnOff || m_iHdrToggleDisplay == HDRTD_OnOff_Fullscreen && m_bIsFullscreen))) {
+						(!bWindowsHDREnabled || (m_iHdrToggleDisplay == HDRTD_OnOff || m_iHdrToggleDisplay == HDRTD_OnOff_Fullscreen && m_bExclusiveScreen))) {
 					bRet = ToggleHDR(displayConfig, false);
 					DLogIf(!bRet, L"CDX11VideoProcessor::HandleHDRToggle() : Toggle HDR OFF failed");
 
@@ -3143,7 +3143,7 @@ HRESULT CDX11VideoProcessor::SetWindowRect(const CRect& windowRect)
 	const UINT w = m_windowRect.Width();
 	const UINT h = m_windowRect.Height();
 
-	if (m_pDXGISwapChain1 && !m_bIsFullscreen) {
+	if (m_pDXGISwapChain1 && !m_bExclusiveScreen) {
 		hr = m_pDXGISwapChain1->ResizeBuffers(0, w, h, DXGI_FORMAT_UNKNOWN, 0);
 	}
 
@@ -3579,7 +3579,7 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 
 	if (config.iSwapEffect != m_iSwapEffect) {
 		m_iSwapEffect = config.iSwapEffect;
-		changeWindow = !m_pFilter->m_bIsFullscreen;
+		changeWindow = !m_pFilter->m_bExclusiveScreen;
 	}
 
 	if (config.bHdrPreferDoVi != m_bHdrPreferDoVi) {
@@ -3852,9 +3852,6 @@ void CDX11VideoProcessor::UpdateStatsPresent()
 	DXGI_SWAP_CHAIN_DESC1 swapchain_desc;
 	if (m_pDXGISwapChain1 && S_OK == m_pDXGISwapChain1->GetDesc1(&swapchain_desc)) {
 		m_strStatsPresent.assign(L"\nPresentation  : ");
-		if (m_bVBlankBeforePresent && m_pDXGIOutput) {
-			m_strStatsPresent.append(L"wait VBlank, ");
-		}
 		switch (swapchain_desc.SwapEffect) {
 		case DXGI_SWAP_EFFECT_DISCARD:
 			m_strStatsPresent.append(L"Discard");
@@ -3871,6 +3868,19 @@ void CDX11VideoProcessor::UpdateStatsPresent()
 		}
 		m_strStatsPresent.append(L", ");
 		m_strStatsPresent.append(DXGIFormatToString(swapchain_desc.Format));
+
+		if ((m_bVBlankBeforePresent && m_pDXGIOutput) || m_bAdjustPresentTime) {
+			m_strStatsPresent.append(L"\nFrame sync    :");
+			if (m_bVBlankBeforePresent && m_pDXGIOutput) {
+				m_strStatsPresent.append(L" wait VBlank");
+			}
+			if (m_bAdjustPresentTime) {
+				if (m_strStatsPresent.back() != ':') {
+					m_strStatsPresent += ',';
+				}
+				m_strStatsPresent.append(L" adjust present time");
+			}
+		}
 	}
 }
 
@@ -4026,11 +4036,12 @@ HRESULT CDX11VideoProcessor::DrawStats(ID3D11Texture2D* pRenderTarget)
 	str.append(m_strStatsHDR);
 	str.append(m_strStatsPresent);
 
-	str += std::format(L"\nFrames: {:5}, skipped: {}/{}, failed: {}",
+	str += std::format(L"\nFrames        : {:5}, skipped: {}/{}, failed: {}",
 		m_pFilter->m_FrameStats.GetFrames(), m_pFilter->m_DrawStats.m_dropped, m_RenderStats.dropped2, m_RenderStats.failed);
-	str += std::format(L"\nTimes(ms): Copy{:3}, Paint{:3}, Present{:3}",
-		m_RenderStats.copyticks * 1000 / GetPreciseTicksPerSecondI(),
-		m_RenderStats.paintticks * 1000 / GetPreciseTicksPerSecondI(),
+
+	str += std::format(L"\nTimes(ms)     : Copy{:3}, Paint{:3}, Present{:3}",
+		m_RenderStats.copyticks    * 1000 / GetPreciseTicksPerSecondI(),
+		m_RenderStats.paintticks   * 1000 / GetPreciseTicksPerSecondI(),
 		m_RenderStats.presentticks * 1000 / GetPreciseTicksPerSecondI());
 
 	str += std::format(L"\nSync offset   : {:+3} ms", (m_RenderStats.syncoffset + 5000) / 10000);
@@ -4218,5 +4229,15 @@ void CDX11VideoProcessor::UpdateSubPic()
 			m_pFilter->m_pSubPicQueue->Invalidate();
 			m_pFilter->m_pSubPicQueue->SetSubPicProvider(m_pFilter->m_pSubPicProvider);
 		}
+	}
+}
+
+void CDX11VideoProcessor::SwitchFullScreen(bool set)
+{
+	m_bFullScreen = set;
+
+	if (HandleHDRToggle()) {
+		InitMediaType(&m_pFilter->m_inputMT);
+		InitSwapChain(false);
 	}
 }

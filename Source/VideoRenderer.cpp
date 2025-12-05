@@ -20,6 +20,7 @@
 
 #include "stdafx.h"
 #include <atomic>
+#include <optional>
 #include <evr.h> // for MR_VIDEO_ACCELERATION_SERVICE, because the <mfapi.h> does not contain it
 #include <Mferror.h>
 #include "Helper.h"
@@ -98,7 +99,7 @@ static LRESULT CALLBACK ParentWndProc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM
 			pThis->OnDisplayModeChange(true);
 			break;
 		case WM_MOVE:
-			if (pThis->m_bIsFullscreen) {
+			if (pThis->m_bExclusiveScreen) {
 				// I don't know why, but without this, the filter freezes when switching from fullscreen to window in DX9 mode.
 				SetWindowLongPtrW(hWnd, GWLP_WNDPROC, (LONG_PTR)pfnOldProc);
 				SetWindowLongPtrW(hWnd, GWLP_WNDPROC, (LONG_PTR)ParentWndProc);
@@ -107,19 +108,19 @@ static LRESULT CALLBACK ParentWndProc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM
 			}
 			break;
 		case WM_NCACTIVATE:
-			if (!wParam && pThis->m_bIsFullscreen && !pThis->m_bIsD3DFullscreen) {
+			if (!wParam && pThis->m_bExclusiveScreen && !pThis->m_bIsD3DFullscreen) {
 				return 0;
 			}
 			break;
 		case WM_RBUTTONUP:
-			if (pThis->m_bIsFullscreen) {
+			if (pThis->m_bExclusiveScreen) {
 				// block context menu in exclusive fullscreen
 				return 0;
 			}
 			break;
 /*
 		case WM_SYSCOMMAND:
-			if (pThis->m_bIsFullscreen && wParam == SC_MINIMIZE) {
+			if (pThis->m_bExclusiveScreen && wParam == SC_MINIMIZE) {
 				// block minimize in exclusive fullscreen
 				return 0;
 			}
@@ -302,7 +303,7 @@ CMpcVideoRenderer::~CMpcVideoRenderer()
 		RemoveParentWndProc(m_hWndParentMain);
 	}
 
-	if (m_bIsFullscreen && !m_bIsD3DFullscreen && m_hWndParentMain) {
+	if (m_bExclusiveScreen && !m_bIsD3DFullscreen && m_hWndParentMain) {
 		PostMessageW(m_hWndParentMain, WM_SWITCH_FULLSCREEN, 0, 0);
 	}
 
@@ -596,7 +597,7 @@ void CMpcVideoRenderer::UpdateDisplayInfo()
 		m_bPrimaryDisplay = false;
 	}
 
-	m_VideoProcessor->SetDisplayInfo(m_DisplayConfig, m_bPrimaryDisplay, m_bIsFullscreen);
+	m_VideoProcessor->SetDisplayInfo(m_DisplayConfig, m_bPrimaryDisplay, m_bExclusiveScreen);
 }
 
 void CMpcVideoRenderer::OnDisplayModeChange(const bool bReset/* = false*/)
@@ -961,21 +962,6 @@ STDMETHODIMP CMpcVideoRenderer::GetPreferredAspectRatio(long *plAspectX, long *p
 	return m_VideoProcessor->GetAspectRatio(plAspectX, plAspectY);
 }
 
-void CMpcVideoRenderer::SwitchFullScreen()
-{
-	DLog(L"CMpcVideoRenderer::SwitchFullScreen() : Switch to fullscreen");
-	m_bIsFullscreen = true;
-
-	if (m_hWnd) {
-		Init(m_VideoProcessor->Type() == VP_DX9 ? false : true);
-		Redraw();
-
-		if (m_hWndParentMain) {
-			PostMessageW(m_hWndParentMain, WM_SWITCH_FULLSCREEN, 1, 0);
-		}
-	}
-}
-
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	CMpcVideoRenderer* pThis = reinterpret_cast <CMpcVideoRenderer*>(GetWindowLongPtrW(hwnd, 0));
@@ -1059,7 +1045,7 @@ HRESULT CMpcVideoRenderer::Init(const bool bCreateWindow/* = false*/)
 		}
 	}
 
-	m_hWnd = m_bIsFullscreen && m_VideoProcessor->Type() == VP_DX9 ? m_hWndParentMain : m_hWndWindow;
+	m_hWnd = m_bExclusiveScreen && m_VideoProcessor->Type() == VP_DX9 ? m_hWndParentMain : m_hWndWindow;
 	if (m_bIsD3DFullscreen) {
 		m_hWnd = m_hWndParent;
 	}
@@ -1122,30 +1108,44 @@ STDMETHODIMP CMpcVideoRenderer::SetWindowPosition(long Left, long Top, long Widt
 
 	CAutoLock cRendererLock(&m_RendererLock);
 
-	if (!m_bIsD3DFullscreen && (m_Sets.bExclusiveFS || m_bIsFullscreen)) {
-		const HMONITOR hMon = MonitorFromWindow(m_hWnd, MONITOR_DEFAULTTONEAREST);
+	std::optional<bool> bFullScreenOpt;
+
+	if (!m_bIsD3DFullscreen) {
+		auto hMon = MonitorFromWindow(m_hWnd, MONITOR_DEFAULTTONEAREST);
 		MONITORINFO mi = { mi.cbSize = sizeof(mi) };
 		::GetMonitorInfoW(hMon, &mi);
 		const CRect rcMonitor(mi.rcMonitor);
+		auto fullScreen = (m_windowRect.Width() == rcMonitor.Width() && m_windowRect.Height() == rcMonitor.Height());
+		if (m_Sets.bExclusiveFS || m_bExclusiveScreen) {
+			auto SwitchExclusiveScreen = [this] (bool set) {
+				DLog(L"CMpcVideoRenderer::SetWindowPosition() : Switch {} Exclusive screen", set ? L"to" : L"from");
+				m_bExclusiveScreen = set;
 
-		if (!m_bIsFullscreen && m_windowRect.Width() == rcMonitor.Width() && m_windowRect.Height() == rcMonitor.Height()) {
-			SwitchFullScreen();
-		} else if (m_bIsFullscreen && (m_windowRect.Width() != rcMonitor.Width() || m_windowRect.Height() != rcMonitor.Height())) {
-			DLog(L"CMpcVideoRenderer::SetWindowPosition() : Switch from fullscreen");
-			m_bIsFullscreen = false;
+				if (m_hWnd) {
+					Init(m_VideoProcessor->Type() == VP_DX9 ? false : true);
+					Redraw();
 
-			if (m_hWnd) {
-				Init(m_VideoProcessor->Type() == VP_DX9 ? false : true);
-				Redraw();
-
-				if (m_hWndParentMain) {
-					PostMessageW(m_hWndParentMain, WM_SWITCH_FULLSCREEN, 0, 0);
+					if (m_hWndParentMain) {
+						PostMessageW(m_hWndParentMain, WM_SWITCH_FULLSCREEN, static_cast<WPARAM>(set), 0);
+					}
 				}
+			};
+
+			if (!m_bExclusiveScreen && fullScreen) {
+				SwitchExclusiveScreen(true);
+			} else if (m_bExclusiveScreen && !fullScreen) {
+				SwitchExclusiveScreen(false);
+			}
+		} else {
+			if (!m_bFullScreen && fullScreen) {
+				bFullScreenOpt = true;
+			} else if (m_bFullScreen && !fullScreen) {
+				bFullScreenOpt = false;
 			}
 		}
 	}
 
-	if (m_hWndWindow && !m_bIsFullscreen) {
+	if (m_hWndWindow && !m_bExclusiveScreen) {
 		SetWindowPos(m_hWndWindow, nullptr, Left, Top, Width, Height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW);
 		if (Left < 0) {
 			m_windowRect.OffsetRect(-Left, 0);
@@ -1158,6 +1158,13 @@ STDMETHODIMP CMpcVideoRenderer::SetWindowPosition(long Left, long Top, long Widt
 	m_VideoProcessor->SetWindowRect(m_windowRect);
 
 	m_windowRect = windowRect;
+
+	if (bFullScreenOpt.has_value()) {
+		m_bFullScreen = *bFullScreenOpt;
+		DLog(L"CMpcVideoRenderer::SetWindowPosition() : Switch {} FullScreen", m_bFullScreen ? L"to" : L"from");
+
+		m_VideoProcessor->SwitchFullScreen(m_bFullScreen);
+	}
 
 	if (m_bForceRedrawing) {
 		Redraw();
@@ -1509,7 +1516,7 @@ STDMETHODIMP CMpcVideoRenderer::Flt_SetBin(LPCSTR field, LPVOID value, int size)
 
 STDMETHODIMP CMpcVideoRenderer::SetD3DFullscreen(bool bEnabled)
 {
-	m_bIsFullscreen = m_bIsD3DFullscreen = bEnabled;
+	m_bExclusiveScreen = m_bIsD3DFullscreen = bEnabled;
 	return S_OK;
 }
 
@@ -1742,7 +1749,7 @@ void CMpcVideoRenderer::DoAfterChangingDevice()
 
 LRESULT CMpcVideoRenderer::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-	if (m_hWndDrain && !InSendMessage() && !m_bIsFullscreen) {
+	if (m_hWndDrain && !InSendMessage() && !m_bExclusiveScreen) {
 		switch (uMsg) {
 			case WM_CHAR:
 			case WM_DEADCHAR:
