@@ -149,7 +149,9 @@ void CVRMainPPage::EnableControls()
 		GetDlgItem(IDC_SLIDER1).EnableWindow(bEnable);
 		GetDlgItem(IDC_STATIC7).EnableWindow(bEnable && m_SetsPP.bVPScaling);
 		GetDlgItem(IDC_COMBO8).EnableWindow(bEnable && m_SetsPP.bVPScaling);
+#ifdef _WIN64
 		GetDlgItem(IDC_CHECK19).EnableWindow(bEnable && m_SetsPP.bHdrPassthrough);
+#endif
 	}
 
 	GetDlgItem(IDC_STATIC8).EnableWindow(m_SetsPP.bConvertToSdr);
@@ -209,6 +211,12 @@ HRESULT CVRMainPPage::OnActivate()
 		GetDlgItem(IDC_COMBO8).EnableWindow(FALSE);
 		GetDlgItem(IDC_CHECK19).EnableWindow(FALSE);
 	}
+
+#ifndef _WIN64
+	GetDlgItem(IDC_STATIC7).EnableWindow(FALSE);
+	GetDlgItem(IDC_COMBO8).EnableWindow(FALSE);
+	GetDlgItem(IDC_CHECK19).EnableWindow(FALSE);
+#endif
 
 	EnableControls();
 
@@ -271,6 +279,28 @@ HRESULT CVRMainPPage::OnActivate()
 
 	SetCursor(m_hWnd, IDC_ARROW);
 	SetCursor(m_hWnd, IDC_COMBO1, IDC_HAND);
+
+	AddHint(IDC_COMBO8,
+		L"Available for Direct3D 11.\n"
+		"Requires hardware and driver support:\n"
+		"- Intel Graphics UHD 610 or later\n"
+		"- Nvidia RTX (x64 only)");
+	AddHint(IDC_CHECK19,
+		L"Available for Direct3D 11.\n"
+		"Requires hardware and driver support:\n"
+		"- Nvidia RTX (x64 only)");
+	AddHint(IDC_COMBO5,
+		L"Used for YUV 4:2:0/4:2:2 input formats\n"
+		"when the DVXA2/D3D11 Video Processor is not active.");
+	AddHint(IDC_COMBO2,
+		L"Used to increase image size when the\n"
+		"DVXA2/D3D11 Video Processor is not used for resizing.");
+	AddHint(IDC_COMBO3,
+		L"Used to reduce image size when the\n"
+		"DVXA2/D3D11 Video Processor is not used for resizing.");
+	AddHint(IDC_COMBO4,
+		L"'Flip' is more efficient, but 'Discard' may work\n"
+		"more correctly in some rare situations.");
 
 	return S_OK;
 }
@@ -510,6 +540,34 @@ HRESULT CVRMainPPage::OnApplyChanges()
 	m_oldSDRDisplayNits = m_SetsPP.iSDRDisplayNits;
 
 	return S_OK;
+}
+
+HWND CVRMainPPage::CreateHintWindow(HWND parent, int timePop, int timeInit, int timeReshow)
+{
+	HWND hhint = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASS, nullptr,
+		WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP, CW_USEDEFAULT,
+		CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, parent, nullptr, nullptr, nullptr);
+
+	SetWindowPos(hhint, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+	SendMessageW(hhint, TTM_SETDELAYTIME, TTDT_AUTOPOP, MAKELONG(timePop, 0));
+	SendMessageW(hhint, TTM_SETDELAYTIME, TTDT_INITIAL, MAKELONG(timeInit, 0));
+	SendMessageW(hhint, TTM_SETDELAYTIME, TTDT_RESHOW, MAKELONG(timeReshow, 0));
+	SendMessageW(hhint, TTM_SETMAXTIPWIDTH, 0, 470);
+	return hhint;
+}
+
+void CVRMainPPage::AddHint(int id, const LPCWSTR text)
+{
+	if (!m_hHint) {
+		m_hHint = CreateHintWindow(m_Dlg, 15000);
+	}
+	TOOLINFOW ti;
+	ti.cbSize = sizeof(TOOLINFOW);
+	ti.uFlags = TTF_SUBCLASS | TTF_IDISHWND;
+	ti.hwnd = m_Dlg;
+	ti.uId = (LPARAM)GetDlgItem(id).m_hWnd;
+	ti.lpszText = const_cast<LPWSTR>(text);
+	SendMessageW(m_hHint, TTM_ADDTOOLW, 0, (LPARAM)&ti);
 }
 
 // CVRInfoPPage

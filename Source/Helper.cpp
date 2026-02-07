@@ -1,5 +1,5 @@
 /*
-* (C) 2018-2025 see Authors.txt
+* (C) 2018-2026 see Authors.txt
 *
 * This file is part of MPC-BE.
 *
@@ -217,6 +217,7 @@ static ColorFormat_t fourcc_to_cformat(const DWORD fourcc)
 	case FCC('P010'): cformat = CF_P010; break;
 	case FCC('P016'): cformat = CF_P016; break;
 	case FCC('YUY2'): cformat = CF_YUY2; break;
+	case FCC('UYVY'): cformat = CF_UYVY; break;
 	case FCC('P210'): cformat = CF_P210; break;
 	case FCC('P216'): cformat = CF_P216; break;
 	case FCC('Y210'): cformat = CF_Y210; break;
@@ -310,6 +311,7 @@ static const FmtConvParams_t s_FmtConvMapping[] = {
 	{CF_P010,      L"P010",      D3DFMT_P010,     D3DFMT_P010,     &DX9PlanesP01x, DXGI_FORMAT_P010,           DXGI_FORMAT_P010,          &DX11PlanesP01x,       2, 3,        CS_YUV,  420,       16 },
 	{CF_P016,      L"P016",      D3DFMT_P016,     D3DFMT_P016,     &DX9PlanesP01x, DXGI_FORMAT_P016,           DXGI_FORMAT_P016,          &DX11PlanesP01x,       2, 3,        CS_YUV,  420,       16 },
 	{CF_YUY2,      L"YUY2",      D3DFMT_YUY2,     D3DFMT_YUY2,    &DX9Plane_ARGB8, DXGI_FORMAT_YUY2,           DXGI_FORMAT_YUY2,         &DX11Plane_RGBA8,       2, 2,        CS_YUV,  422,        8 },
+	{CF_UYVY,      L"UYVY",      D3DFMT_UYVY,     D3DFMT_UNKNOWN,         nullptr, DXGI_FORMAT_UNKNOWN,        DXGI_FORMAT_UNKNOWN,               nullptr,       2, 2,        CS_YUV,  422,        8 },
 	{CF_P210,      L"P210",      D3DFMT_P210,     D3DFMT_P210,     &DX9PlanesP21x, DXGI_FORMAT_UNKNOWN,        DXGI_FORMAT_PLANAR,        &DX11PlanesP21x,       2, 4,        CS_YUV,  422,       16 },
 	{CF_P216,      L"P216",      D3DFMT_P216,     D3DFMT_P216,     &DX9PlanesP21x, DXGI_FORMAT_UNKNOWN,        DXGI_FORMAT_PLANAR,        &DX11PlanesP21x,       2, 4,        CS_YUV,  422,       16 },
 	{CF_Y210,      L"Y210",      D3DFMT_UNKNOWN,  D3DFMT_UNKNOWN,         nullptr, DXGI_FORMAT_Y210,           DXGI_FORMAT_Y210,        &DX11Plane_RGBA16,       4, 2,        CS_YUV,  422,       10 },
@@ -876,7 +878,7 @@ void ConvertR10G10B10A2toBGR64(const UINT lines, BYTE* dst, UINT dst_pitch, cons
 	}
 }
 
-void fill_u32(void* dst, uint32_t c, size_t count)
+void fill_u32(void* dst, const uint32_t c, const size_t count)
 {
 #ifndef _WIN64
 	__asm {
@@ -887,28 +889,23 @@ void fill_u32(void* dst, uint32_t c, size_t count)
 		rep stosd
 	}
 #else
-	size_t& n = count;
-	size_t o = n - (n % 4);
+	const size_t count4 = count & ~(size_t)(4 - 1);
+	size_t i = 0;
 
 	__m128i val = _mm_set1_epi32((int)c);
 	if (((uintptr_t)dst & 0x0F) == 0) { // 16-byte aligned
-		for (size_t i = 0; i < o; i += 4) {
+		for (; i < count4; i += 4) {
 			_mm_store_si128((__m128i*) & (((uint32_t*)dst)[i]), val);
 		}
 	}
 	else {
-		for (size_t i = 0; i < o; i += 4) {
+		for (; i < count4; i += 4) {
 			_mm_storeu_si128((__m128i*) & (((uint32_t*)dst)[i]), val);
 		}
 	}
 
-	switch (n - o) {
-	case 3:
-		((uint32_t*)dst)[o + 2] = c;
-	case 2:
-		((uint32_t*)dst)[o + 1] = c;
-	case 1:
-		((uint32_t*)dst)[o + 0] = c;
+	for (; i < count; ++i) {
+		((uint32_t*)dst)[i] = c;
 	}
 #endif
 }

@@ -1,5 +1,5 @@
 /*
-* (C) 2018-2025 see Authors.txt
+* (C) 2018-2026 see Authors.txt
 *
 * This file is part of MPC-BE.
 *
@@ -387,6 +387,8 @@ CDX11VideoProcessor::CDX11VideoProcessor(CMpcVideoRenderer* pFilter, const Setti
 	m_iVPDeinterlacing     = config.iVPDeinterlacing;
 	m_bDeintDouble         = config.bDeintDouble;
 	m_bVPScaling           = config.bVPScaling;
+	m_iVPSuperRes          = config.iVPSuperRes;
+	m_bVPRTXVideoHDR       = config.bVPRTXVideoHDR;
 	m_iChromaScaling       = config.iChromaScaling;
 	m_iUpscaling           = config.iUpscaling;
 	m_iDownscaling         = config.iDownscaling;
@@ -402,8 +404,6 @@ CDX11VideoProcessor::CDX11VideoProcessor(CMpcVideoRenderer* pFilter, const Setti
 	m_iHdrOsdBrightness    = config.iHdrOsdBrightness;
 	m_bConvertToSdr        = config.bConvertToSdr;
 	m_iSDRDisplayNits      = config.iSDRDisplayNits;
-	m_bVPRTXVideoHDR       = config.bVPRTXVideoHDR;
-	m_iVPSuperRes          = config.iVPSuperRes;
 
 	m_nCurrentAdapter = -1;
 
@@ -1548,7 +1548,7 @@ bool CDX11VideoProcessor::HandleHDRToggle()
 				}
 
 				if (displayConfig.HDRSupported() && displayConfig.HDREnabled() &&
-						(!bWindowsHDREnabled || (m_iHdrToggleDisplay == HDRTD_OnOff || m_iHdrToggleDisplay == HDRTD_OnOff_Fullscreen && m_bExclusiveScreen))) {
+						(!bWindowsHDREnabled || m_iHdrToggleDisplay == HDRTD_OnOff || (m_iHdrToggleDisplay == HDRTD_OnOff_Fullscreen && m_bExclusiveScreen))) {
 					bRet = ToggleHDR(displayConfig, false);
 					DLogIf(!bRet, L"CDX11VideoProcessor::HandleHDRToggle() : Toggle HDR OFF failed");
 
@@ -3122,7 +3122,7 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 		hr = ResizeShaderPass(*pInputTexture, pRenderTarget, rSrc, dstRect, rotation);
 	}
 
-	DLogIf(FAILED(hr), L"CDX9VideoProcessor::Process() : failed with error {}", HR2Str(hr));
+	DLogIf(FAILED(hr), L"CDX11VideoProcessor::Process() : failed with error {}", HR2Str(hr));
 
 	return hr;
 }

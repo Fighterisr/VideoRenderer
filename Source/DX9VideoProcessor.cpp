@@ -1,5 +1,5 @@
 /*
-* (C) 2018-2025 see Authors.txt
+* (C) 2018-2026 see Authors.txt
 *
 * This file is part of MPC-BE.
 *
@@ -383,19 +383,19 @@ HRESULT CDX9VideoProcessor::InitInternal(bool* pChangeDevice/* = nullptr*/)
 	if (!pOrigSystemParametersInfoA) {
 		pOrigSystemParametersInfoA = SystemParametersInfoA;
 		auto ret = HookFunc(&pOrigSystemParametersInfoA, pNewSystemParametersInfoA);
-		DLogIf(!ret, L"CMpcVideoRenderer::InitInternal() : hook for SystemParametersInfoA() fail");
+		DLogIf(!ret, L"CDX9VideoProcessor::InitInternal() : hook for SystemParametersInfoA() fail");
 
 		pOrigSetWindowLongA = SetWindowLongA;
 		ret = HookFunc(&pOrigSetWindowLongA, pNewSetWindowLongA);
-		DLogIf(!ret, L"CMpcVideoRenderer::InitInternal() : hook for SetWindowLongA() fail");
+		DLogIf(!ret, L"CDX9VideoProcessor::InitInternal() : hook for SetWindowLongA() fail");
 
 		pOrigSetWindowPos = SetWindowPos;
 		ret = HookFunc(&pOrigSetWindowPos, pNewSetWindowPos);
-		DLogIf(!ret, L"CMpcVideoRenderer::InitInternal() : hook for SetWindowPos() fail");
+		DLogIf(!ret, L"CDX9VideoProcessor::InitInternal() : hook for SetWindowPos() fail");
 
 		pOrigShowWindow = ShowWindow;
 		ret = HookFunc(&pOrigShowWindow, pNewShowWindow);
-		DLogIf(!ret, L"CMpcVideoRenderer::InitInternal() : hook for ShowWindow() fail");
+		DLogIf(!ret, L"CDX9VideoProcessor::InitInternal() : hook for ShowWindow() fail");
 
 		MH_EnableHook(MH_ALL_HOOKS);
 	}
@@ -416,11 +416,6 @@ HRESULT CDX9VideoProcessor::InitInternal(bool* pChangeDevice/* = nullptr*/)
 		DLog(L"Graphics D3D9 adapter: {}", m_strAdapterDescription);
 	}
 
-	ZeroMemory(&m_DisplayMode, sizeof(D3DDISPLAYMODEEX));
-	m_DisplayMode.Size = sizeof(D3DDISPLAYMODEEX);
-	HRESULT hr = m_pD3DEx->GetAdapterDisplayModeEx(m_nCurrentAdapter, &m_DisplayMode, nullptr);
-	DLog(L"Display Mode: {}x{}, {}{}", m_DisplayMode.Width, m_DisplayMode.Height, m_DisplayMode.RefreshRate, (m_DisplayMode.ScanLineOrdering == D3DSCANLINEORDERING_INTERLACED) ? 'i' : 'p');
-
 #ifdef _DEBUG
 	D3DCAPS9 DevCaps = {};
 	if (S_OK == m_pD3DEx->GetDeviceCaps(m_nCurrentAdapter, D3DDEVTYPE_HAL, &DevCaps)) {
@@ -435,6 +430,11 @@ HRESULT CDX9VideoProcessor::InitInternal(bool* pChangeDevice/* = nullptr*/)
 		DLog(dbgstr);
 	}
 #endif
+
+	ZeroMemory(&m_DisplayMode, sizeof(D3DDISPLAYMODEEX));
+	m_DisplayMode.Size = sizeof(D3DDISPLAYMODEEX);
+	HRESULT hr = m_pD3DEx->GetAdapterDisplayModeEx(m_nCurrentAdapter, &m_DisplayMode, nullptr);
+	DLog(L"Display Mode: {}x{}, {}{}", m_DisplayMode.Width, m_DisplayMode.Height, m_DisplayMode.RefreshRate, (m_DisplayMode.ScanLineOrdering == D3DSCANLINEORDERING_INTERLACED) ? 'i' : 'p');
 
 	ZeroMemory(&m_d3dpp, sizeof(m_d3dpp));
 	if (m_pFilter->m_bExclusiveScreen) {
@@ -1390,11 +1390,11 @@ HRESULT CDX9VideoProcessor::CopySample(IMediaSample* pSample)
 				}
 
 				if (bYCCtoRGBChanged) {
-					DLog(L"CDX11VideoProcessor::CopySample() : DoVi ycc_to_rgb_matrix is changed");
+					DLog(L"CDX9VideoProcessor::CopySample() : DoVi ycc_to_rgb_matrix is changed");
 					SetShaderConvertColorParams();
 				}
 				if (bRGBtoLMSChanged) {
-					DLog(L"CDX11VideoProcessor::CopySample() : DoVi rgb_to_lms_matrix is changed");
+					DLog(L"CDX9VideoProcessor::CopySample() : DoVi rgb_to_lms_matrix is changed");
 					UpdateConvertColorShader();
 				}
 				if (bMappingCurvesChanged) {
